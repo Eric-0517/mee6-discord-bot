@@ -1,64 +1,91 @@
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+require('dotenv').config();
+const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
+const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
 
+// 連接 MongoDB
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log('✅ 成功連接 MongoDB'))
+.catch((err) => console.error('❌ MongoDB 連線失敗:', err));
+
+// 載入資料模型
+const GuildConfig = require('./models/GuildConfig');
+
+// 初始化 Discord Bot
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates
   ],
+  partials: [Partials.Channel]
 });
 
-// 載入環境變數
-require('dotenv').config();
-
-// 🔽 載入 config.json 設定
-const configPath = path.join(__dirname, '../config.json');
-function loadConfig(guildId) {
-  if (!fs.existsSync(configPath)) return {};
-  const config = JSON.parse(fs.readFileSync(configPath));
-  return config[guildId] || {};
+// 載入指令處理
+client.commands = new Map();
+const commandsPath = path.join(__dirname, 'commands');
+const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+for (const file of commandFiles) {
+  const command = require(`./commands/${file}`);
+  client.commands.set(command.data.name, command);
 }
 
-// 🔔 新成員加入
-client.on(Events.GuildMemberAdd, async member => {
-  const cfg = loadConfig(member.guild.id);
-  const welcomeChannel = member.guild.channels.cache.get(cfg.welcomeChannelId);
-  const defaultRole = member.guild.roles.cache.get(cfg.defaultRoleId);
+// 處理互動事件
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  const command = client.commands.get(interaction.commandName);
+  if (!command) return;
 
   try {
-    if (defaultRole) {
-      await member.roles.add(defaultRole);
-      console.log(`✅ 已為 ${member.user.tag} 指派預設身分組`);
-    }
-    if (welcomeChannel) {
-      await welcomeChannel.send(`🎉 歡迎 <@${member.id}> 加入伺服器！`);
-    }
-  } catch (err) {
-    console.error('🚨 成員加入處理錯誤:', err);
+    await command.execute(interaction);
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({ content: '❌ 執行指令時發生錯誤！', ephemeral: true });
   }
 });
 
-// 👋 成員離開
-client.on(Events.GuildMemberRemove, async member => {
-  const cfg = loadConfig(member.guild.id);
-  const leaveChannel = member.guild.channels.cache.get(cfg.leaveChannelId);
+// 新成員加入事件
+client.on(Events.GuildMemberAdd, async (member) => {
+  const config = await GuildConfig.findOne({ guildId: member.guild.id });
+  if (!config) return;
 
-  try {
-    if (leaveChannel) {
-      await leaveChannel.send(`👋 ${member.user.tag} 離開了伺服器。`);
+  // 加身分組
+  if (config.defaultRoleId) {
+    try {
+      await member.roles.add(config.defaultRoleId);
+    } catch (err) {
+      console.error(`❌ 加身分組錯誤: ${err}`);
     }
-  } catch (err) {
-    console.error('🚨 成員離開處理錯誤:', err);
+  }
+
+  // 發送歡迎訊息
+  if (config.welcomeChannelId) {
+    const channel = member.guild.channels.cache.get(config.welcomeChannelId);
+    if (channel) {
+      channel.send(`🎉 歡迎 <@${member.id}> 加入伺服器！`);
+    }
   }
 });
 
-// 🟢 Bot 上線
+// 成員離開事件
+client.on(Events.GuildMemberRemove, async (member) => {
+  const config = await GuildConfig.findOne({ guildId: member.guild.id });
+  if (!config || !config.leaveChannelId) return;
+
+  const channel = member.guild.channels.cache.get(config.leaveChannelId);
+  if (channel) {
+    channel.send(`👋 <@${member.id}> 已離開伺服器。`);
+  }
+});
+
+// 上線
 client.once(Events.ClientReady, () => {
-  console.log(`🤖 Bot 已上線：${client.user.tag}`);
+  console.log(`✅ ${client.user.tag} 已上線！`);
 });
 
 client.login(process.env.DISCORD_TOKEN);
