@@ -1,91 +1,72 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
-const mongoose = require('mongoose');
-const fs = require('fs');
-const path = require('path');
+require("dotenv").config();
+const { Client, GatewayIntentBits, Collection } = require("discord.js");
+const fs = require("fs");
+const mongoose = require("mongoose");
 
-// 連接 MongoDB
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('✅ 成功連接 MongoDB'))
-.catch((err) => console.error('❌ MongoDB 連線失敗:', err));
-
-// 載入資料模型
-const GuildConfig = require('./models/GuildConfig');
-
-// 初始化 Discord Bot
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
-  partials: [Partials.Channel]
 });
 
-// 載入指令處理
-client.commands = new Map();
-const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+client.commands = new Collection();
+
+// 載入 Slash 指令
+const commandFiles = fs.readdirSync("./commands").filter(file => file.endsWith(".js"));
 for (const file of commandFiles) {
   const command = require(`./commands/${file}`);
-  client.commands.set(command.data.name, command);
+  if (command.data && command.execute) {
+    client.commands.set(command.data.name, command);
+  }
 }
 
-// 處理互動事件
-client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-  const command = client.commands.get(interaction.commandName);
-  if (!command) return;
-
-  try {
-    await command.execute(interaction);
-  } catch (error) {
-    console.error(error);
-    await interaction.reply({ content: '❌ 執行指令時發生錯誤！', ephemeral: true });
+// 載入事件（如：guildMemberAdd、messageCreate）
+const eventFiles = fs.readdirSync("./events").filter(file => file.endsWith(".js"));
+for (const file of eventFiles) {
+  const event = require(`./events/${file}`);
+  if (event.once) {
+    client.once(event.name, (...args) => event.execute(...args, client));
+  } else {
+    client.on(event.name, (...args) => event.execute(...args, client));
   }
-});
+}
 
-// 新成員加入事件
-client.on(Events.GuildMemberAdd, async (member) => {
-  const config = await GuildConfig.findOne({ guildId: member.guild.id });
-  if (!config) return;
-
-  // 加身分組
-  if (config.defaultRoleId) {
-    try {
-      await member.roles.add(config.defaultRoleId);
-    } catch (err) {
-      console.error(`❌ 加身分組錯誤: ${err}`);
-    }
+// 登入成功後註冊 Slash 指令
+client.once("ready", async () => {
+  const guilds = await client.guilds.fetch();
+  for (const [guildId] of guilds) {
+    const guild = await client.guilds.fetch(guildId);
+    await guild.commands.set(client.commands.map(cmd => cmd.data));
   }
-
-  // 發送歡迎訊息
-  if (config.welcomeChannelId) {
-    const channel = member.guild.channels.cache.get(config.welcomeChannelId);
-    if (channel) {
-      channel.send(`🎉 歡迎 <@${member.id}> 加入伺服器！`);
-    }
-  }
-});
-
-// 成員離開事件
-client.on(Events.GuildMemberRemove, async (member) => {
-  const config = await GuildConfig.findOne({ guildId: member.guild.id });
-  if (!config || !config.leaveChannelId) return;
-
-  const channel = member.guild.channels.cache.get(config.leaveChannelId);
-  if (channel) {
-    channel.send(`👋 <@${member.id}> 已離開伺服器。`);
-  }
-});
-
-// 上線
-client.once(Events.ClientReady, () => {
   console.log(`✅ ${client.user.tag} 已上線！`);
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// 處理指令執行
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  const command = client.commands.get(interaction.commandName);
+  if (!command) return;
+  try {
+    await command.execute(interaction, client);
+  } catch (err) {
+    console.error(err);
+    await interaction.reply({ content: "❌ 指令執行時發生錯誤！", ephemeral: true });
+  }
+});
+
+// 連接 MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => {
+  console.log("✅ 已連接 MongoDB");
+}).catch(err => {
+  console.error("❌ MongoDB 連接失敗", err);
+});
+
+// 登入 Discord
+client.login(process.env.TOKEN);
