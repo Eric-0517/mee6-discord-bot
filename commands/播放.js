@@ -4,7 +4,7 @@ const ytdl = require('ytdl-core');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('play')
+    .setName('播放')
     .setDescription('播放 YouTube 音樂')
     .addStringOption(option =>
       option.setName('url')

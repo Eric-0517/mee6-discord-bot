@@ -2,7 +2,7 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('ban')
+    .setName('封鎖')
     .setDescription('封鎖一位成員')
     .addUserOption(option =>
       option.setName('target')

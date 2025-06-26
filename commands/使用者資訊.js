@@ -2,7 +2,7 @@ const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('userinfo')
+    .setName('使用者資訊')
     .setDescription('取得某位使用者的資訊')
     .addUserOption(option =>
       option.setName('target')

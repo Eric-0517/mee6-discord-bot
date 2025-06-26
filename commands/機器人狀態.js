@@ -4,7 +4,7 @@ const moment = require('moment');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('status')
+    .setName('機器人狀態')
     .setDescription('📊 查看機器人完整狀態'),
 
   async execute(interaction) {

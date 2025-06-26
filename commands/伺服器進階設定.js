@@ -3,7 +3,7 @@ const GuildConfig = require("../models/GuildConfig");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("setconfig")
+    .setName("伺服器進階設定")
     .setDescription("設定伺服器的歡迎頻道、離開頻道與預設角色")
     .addChannelOption(option =>
       option.setName("welcome_channel").setDescription("加入歡迎頻道").setRequired(true))
